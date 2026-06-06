@@ -60,6 +60,7 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 
 type Config struct {
 	Server                  ServerConfig                  `mapstructure:"server"`
+	Auth                    AuthConfig                    `mapstructure:"auth"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
 	Security                SecurityConfig                `mapstructure:"security"`
@@ -93,6 +94,15 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+}
+
+type AuthConfig struct {
+	PasswordlessAdminLogin PasswordlessAdminLoginConfig `mapstructure:"passwordless_admin_login"`
+}
+
+type PasswordlessAdminLoginConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	AdminEmail string `mapstructure:"admin_email"`
 }
 
 type LogConfig struct {
@@ -686,6 +696,10 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	// APIKeyPlatformGroups maps one API key to per-platform groups.
+	// This lets the same client key route OpenAI and Anthropic protocol requests
+	// to separate single-platform groups without changing the API key schema.
+	APIKeyPlatformGroups []APIKeyPlatformGroupConfig `mapstructure:"api_key_platform_groups"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -799,6 +813,12 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
+}
+
+type APIKeyPlatformGroupConfig struct {
+	APIKeyID         int64 `mapstructure:"api_key_id"`
+	OpenAIGroupID    int64 `mapstructure:"openai_group_id"`
+	AnthropicGroupID int64 `mapstructure:"anthropic_group_id"`
 }
 
 // GatewayOpenAIHTTP2Config OpenAI HTTP 上游协议配置。
@@ -1413,6 +1433,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Server.Mode = "debug"
 	}
 	cfg.Server.FrontendURL = strings.TrimSpace(cfg.Server.FrontendURL)
+	cfg.Auth.PasswordlessAdminLogin.AdminEmail = strings.ToLower(strings.TrimSpace(cfg.Auth.PasswordlessAdminLogin.AdminEmail))
 	cfg.JWT.Secret = strings.TrimSpace(cfg.JWT.Secret)
 	cfg.LinuxDo.ClientID = strings.TrimSpace(cfg.LinuxDo.ClientID)
 	cfg.LinuxDo.ClientSecret = strings.TrimSpace(cfg.LinuxDo.ClientSecret)
@@ -1549,6 +1570,10 @@ func setDefaults() {
 	viper.SetDefault("server.h2c.max_read_frame_size", 1<<20)              // 1MB（够用）
 	viper.SetDefault("server.h2c.max_upload_buffer_per_connection", 2<<20) // 2MB
 	viper.SetDefault("server.h2c.max_upload_buffer_per_stream", 512<<10)   // 512KB
+
+	// Auth
+	viper.SetDefault("auth.passwordless_admin_login.enabled", false)
+	viper.SetDefault("auth.passwordless_admin_login.admin_email", "")
 
 	// Log
 	viper.SetDefault("log.level", "info")

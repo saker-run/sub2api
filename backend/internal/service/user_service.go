@@ -969,6 +969,18 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*User, error) {
 	return user, nil
 }
 
+func (s *UserService) GetByEmail(ctx context.Context, email string) (*User, error) {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("get user by email: %w", err)
+	}
+	normalizeLoadedUserTokenVersion(user)
+	if err := s.hydrateUserAvatar(ctx, user); err != nil {
+		return nil, fmt.Errorf("get user avatar: %w", err)
+	}
+	return user, nil
+}
+
 func normalizeLoadedUserTokenVersion(user *User) {
 	if user == nil || user.TokenVersionResolved {
 		return

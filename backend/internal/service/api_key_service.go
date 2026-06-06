@@ -512,6 +512,49 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 	return apiKey, nil
 }
 
+// ApplyConfiguredPlatformGroup switches the request-local API key group based on
+// gateway.api_key_platform_groups. It does not mutate persisted API key data.
+func (s *APIKeyService) ApplyConfiguredPlatformGroup(ctx context.Context, apiKey *APIKey, platform string) error {
+	if s == nil || s.cfg == nil || apiKey == nil || platform == "" {
+		return nil
+	}
+	var groupID int64
+	for _, item := range s.cfg.Gateway.APIKeyPlatformGroups {
+		if item.APIKeyID != apiKey.ID {
+			continue
+		}
+		switch platform {
+		case PlatformOpenAI:
+			groupID = item.OpenAIGroupID
+		case PlatformAnthropic:
+			groupID = item.AnthropicGroupID
+		}
+		break
+	}
+	if groupID <= 0 {
+		return nil
+	}
+	if apiKey.GroupID != nil && *apiKey.GroupID == groupID && apiKey.Group != nil {
+		return nil
+	}
+	if s.groupRepo == nil {
+		return fmt.Errorf("api key platform group configured but group repository is unavailable")
+	}
+	group, err := s.groupRepo.GetByID(ctx, groupID)
+	if err != nil {
+		return fmt.Errorf("get api key platform group: %w", err)
+	}
+	if group == nil || !group.IsActive() {
+		return fmt.Errorf("api key platform group %d is unavailable", groupID)
+	}
+	if group.Platform != platform {
+		return fmt.Errorf("api key platform group %d platform mismatch: expected %s, got %s", groupID, platform, group.Platform)
+	}
+	apiKey.GroupID = &group.ID
+	apiKey.Group = group
+	return nil
+}
+
 // Update 更新API Key
 func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req UpdateAPIKeyRequest) (*APIKey, error) {
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
