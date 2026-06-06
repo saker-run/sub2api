@@ -264,6 +264,36 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	h.respondWithTokenPair(c, user)
 }
 
+func (h *AuthHandler) PasswordlessAdminLogin(c *gin.Context) {
+	cfg := h.cfg.Auth.PasswordlessAdminLogin
+	adminEmail := strings.ToLower(strings.TrimSpace(cfg.AdminEmail))
+	if !cfg.Enabled || adminEmail == "" {
+		response.NotFound(c, "passwordless login is disabled")
+		return
+	}
+
+	user, err := h.userService.GetByEmail(c.Request.Context(), adminEmail)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := ensureLoginUserActive(user); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if !user.IsAdmin() {
+		response.Forbidden(c, "passwordless login target must be an admin user")
+		return
+	}
+	if err := h.ensureBackendModeAllowsUser(c.Request.Context(), user); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	h.authService.RecordSuccessfulLogin(c.Request.Context(), user.ID)
+	h.respondWithTokenPair(c, user)
+}
+
 // TotpLoginResponse represents the response when 2FA is required
 type TotpLoginResponse struct {
 	Requires2FA     bool   `json:"requires_2fa"`

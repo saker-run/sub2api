@@ -119,6 +119,37 @@
           {{ isLoading ? t('auth.signingIn') : t('auth.signIn') }}
         </button>
 
+        <button
+          v-if="passwordlessAdminLoginEnabled"
+          type="button"
+          :disabled="authActionDisabled"
+          class="btn btn-secondary w-full"
+          @click="handlePasswordlessAdminLogin"
+        >
+          <svg
+            v-if="isLoading"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            ></circle>
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
+          </svg>
+          <Icon v-else name="login" size="md" class="mr-2" />
+          免密登录
+        </button>
+
         <LoginAgreementPrompt
           v-if="loginAgreementEnabled"
           :accepted="agreementAccepted"
@@ -245,6 +276,7 @@ const oidcOAuthProviderName = ref<string>('OIDC')
 const githubOAuthEnabled = ref<boolean>(false)
 const googleOAuthEnabled = ref<boolean>(false)
 const passwordResetEnabled = ref<boolean>(false)
+const passwordlessAdminLoginEnabled = ref<boolean>(false)
 const loginAgreementEnabled = ref<boolean>(false)
 const loginAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
 const loginAgreementUpdatedAt = ref<string>('')
@@ -328,6 +360,7 @@ onMounted(async () => {
     googleOAuthEnabled.value = settings.google_oauth_enabled
     backendModeEnabled.value = settings.backend_mode_enabled
     passwordResetEnabled.value = settings.password_reset_enabled
+    passwordlessAdminLoginEnabled.value = settings.passwordless_admin_login_enabled === true
     applyLoginAgreementSettings(settings)
   } catch (error) {
     console.error('Failed to load public settings:', error)
@@ -510,6 +543,34 @@ async function handleLogin(): Promise<void> {
     errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed'))
 
     // Also show error toast
+    appStore.showError(errorMessage.value)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function handlePasswordlessAdminLogin(): Promise<void> {
+  errorMessage.value = ''
+
+  if (agreementGateActive.value) {
+    appStore.showWarning('请先阅读并同意最新条款后再登录。')
+    if (loginAgreementMode.value !== 'checkbox') {
+      showAgreementModal.value = true
+    }
+    return
+  }
+
+  isLoading.value = true
+
+  try {
+    await authStore.passwordlessAdminLogin()
+    clearAllAffiliateReferralCodes()
+    appStore.showSuccess(t('auth.loginSuccess'))
+
+    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
+    await router.push(redirectTo)
+  } catch (error: unknown) {
+    errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', '免密登录失败')
     appStore.showError(errorMessage.value)
   } finally {
     isLoading.value = false

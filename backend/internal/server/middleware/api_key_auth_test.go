@@ -235,6 +235,91 @@ func TestAPIKeyAuthSetsGroupContext(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestAPIKeyAuthAppliesConfiguredPlatformGroups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	anthropicGroup := &service.Group{
+		ID:       101,
+		Name:     "anthropic",
+		Status:   service.StatusActive,
+		Platform: service.PlatformAnthropic,
+		Hydrated: true,
+	}
+	openAIGroup := &service.Group{
+		ID:       202,
+		Name:     "openai",
+		Status:   service.StatusActive,
+		Platform: service.PlatformOpenAI,
+		Hydrated: true,
+	}
+	user := &service.User{
+		ID:          7,
+		Role:        service.RoleUser,
+		Status:      service.StatusActive,
+		Balance:     10,
+		Concurrency: 3,
+	}
+	apiKey := &service.APIKey{
+		ID:      100,
+		UserID:  user.ID,
+		GroupID: &anthropicGroup.ID,
+		Key:     "test-key",
+		Status:  service.StatusActive,
+		User:    user,
+		Group:   anthropicGroup,
+	}
+
+	apiKeyRepo := &stubApiKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	}
+	groupRepo := &stubGroupRepo{
+		byID: map[int64]*service.Group{
+			anthropicGroup.ID: anthropicGroup,
+			openAIGroup.ID:    openAIGroup,
+		},
+	}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Gateway.APIKeyPlatformGroups = []config.APIKeyPlatformGroupConfig{{
+		APIKeyID:         apiKey.ID,
+		OpenAIGroupID:    openAIGroup.ID,
+		AnthropicGroupID: anthropicGroup.ID,
+	}}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, groupRepo, nil, nil, nil, cfg)
+
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
+	router.POST("/v1/messages", func(c *gin.Context) {
+		key, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, key.GroupID)
+		require.Equal(t, anthropicGroup.ID, *key.GroupID)
+		require.Equal(t, service.PlatformAnthropic, key.Group.Platform)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		key, ok := GetAPIKeyFromContext(c)
+		require.True(t, ok)
+		require.NotNil(t, key.GroupID)
+		require.Equal(t, openAIGroup.ID, *key.GroupID)
+		require.Equal(t, service.PlatformOpenAI, key.Group.Platform)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	for _, path := range []string{"/v1/messages", "/v1/chat/completions"} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("x-api-key", apiKey.Key)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code, path)
+	}
+}
+
 func TestAPIKeyAuthOverwritesInvalidContextGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -960,6 +1045,80 @@ func (r *stubApiKeyRepo) ResetRateLimitWindows(ctx context.Context, id int64) er
 }
 func (r *stubApiKeyRepo) GetRateLimitData(ctx context.Context, id int64) (*service.APIKeyRateLimitData, error) {
 	return nil, nil
+}
+
+type stubGroupRepo struct {
+	byID map[int64]*service.Group
+}
+
+func (r *stubGroupRepo) Create(ctx context.Context, group *service.Group) error {
+	return errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) GetByID(ctx context.Context, id int64) (*service.Group, error) {
+	if r != nil && r.byID != nil {
+		if group, ok := r.byID[id]; ok {
+			clone := *group
+			return &clone, nil
+		}
+	}
+	return nil, service.ErrGroupNotFound
+}
+
+func (r *stubGroupRepo) GetByIDLite(ctx context.Context, id int64) (*service.Group, error) {
+	return r.GetByID(ctx, id)
+}
+
+func (r *stubGroupRepo) Update(ctx context.Context, group *service.Group) error {
+	return errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) Delete(ctx context.Context, id int64) error {
+	return errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) DeleteCascade(ctx context.Context, id int64) ([]int64, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) List(ctx context.Context, params pagination.PaginationParams) ([]service.Group, *pagination.PaginationResult, error) {
+	return nil, nil, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, status, search string, isExclusive *bool) ([]service.Group, *pagination.PaginationResult, error) {
+	return nil, nil, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) ListActive(ctx context.Context) ([]service.Group, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) ListActiveByPlatform(ctx context.Context, platform string) ([]service.Group, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) ExistsByName(ctx context.Context, name string) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) GetAccountCount(ctx context.Context, groupID int64) (total int64, active int64, err error) {
+	return 0, 0, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) DeleteAccountGroupsByGroupID(ctx context.Context, groupID int64) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) GetAccountIDsByGroupIDs(ctx context.Context, groupIDs []int64) ([]int64, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) BindAccountsToGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
+	return errors.New("not implemented")
+}
+
+func (r *stubGroupRepo) UpdateSortOrders(ctx context.Context, updates []service.GroupSortOrderUpdate) error {
+	return errors.New("not implemented")
 }
 
 type stubUserSubscriptionRepo struct {

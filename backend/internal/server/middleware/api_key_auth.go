@@ -80,6 +80,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// IP 限制等早退中断，也让 Ops 错误日志能回退取到 user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
 
+		if err := applyConfiguredPlatformGroup(c, apiKeyService, apiKey); err != nil {
+			AbortWithError(c, 500, "API_KEY_PLATFORM_GROUP_ERROR", err.Error())
+			return
+		}
+
 		// ── 3. 基础鉴权（始终执行） ─────────────────────────────────
 
 		// disabled / 未知状态 → 无条件拦截（expired 和 quota_exhausted 留给计费阶段）
@@ -228,6 +233,43 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 
 		c.Next()
+	}
+}
+
+func applyConfiguredPlatformGroup(c *gin.Context, apiKeyService *service.APIKeyService, apiKey *service.APIKey) error {
+	if apiKeyService == nil {
+		return nil
+	}
+	platform := inferGatewayProtocolPlatform(c.Request.URL.Path)
+	if platform == "" {
+		return nil
+	}
+	return apiKeyService.ApplyConfiguredPlatformGroup(c.Request.Context(), apiKey, platform)
+}
+
+func inferGatewayProtocolPlatform(path string) string {
+	path = strings.TrimSpace(path)
+	switch {
+	case path == "/v1/chat/completions" ||
+		path == "/chat/completions" ||
+		path == "/v1/responses" ||
+		strings.HasPrefix(path, "/v1/responses/") ||
+		path == "/responses" ||
+		strings.HasPrefix(path, "/responses/") ||
+		path == "/backend-api/codex/responses" ||
+		strings.HasPrefix(path, "/backend-api/codex/responses/") ||
+		path == "/v1/embeddings" ||
+		path == "/embeddings" ||
+		path == "/v1/images/generations" ||
+		path == "/v1/images/edits" ||
+		path == "/images/generations" ||
+		path == "/images/edits":
+		return service.PlatformOpenAI
+	case path == "/v1/messages" ||
+		path == "/v1/messages/count_tokens":
+		return service.PlatformAnthropic
+	default:
+		return ""
 	}
 }
 

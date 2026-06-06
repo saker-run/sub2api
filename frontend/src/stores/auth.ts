@@ -257,6 +257,17 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function passwordlessAdminLogin(): Promise<User> {
+    try {
+      const response = await authAPI.passwordlessAdminLogin()
+      setAuthFromResponse(response)
+      return user.value!
+    } catch (error) {
+      clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+      throw error
+    }
+  }
+
   /**
    * Complete login with 2FA code
    * @param tempToken - Temporary token from initial login
@@ -481,6 +492,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     // Actions
     login,
+    passwordlessAdminLogin,
     login2FA,
     register,
     setToken,
